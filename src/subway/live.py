@@ -2,10 +2,12 @@
 
 python -m subway.live --out data/live [--history-in previous/history.json]
 
-Line status rules (MTA-style wait assessment = share of headways within 25% of the scheduled headway):
-    good     wait assessment >= 75% in the last 30 minutes and fewer than 2 open gaps
-    delays   wait assessment 60-75%, or 2 open gaps
-    severe   wait assessment < 60%, or 3+ open gaps
+Line status rules. Wait assessment (MTA): share of intervals within 25% of the scheduled interval, last 30 minutes.
+A gap incident is a direction of a line with any platform overdue; one late train opens a gap at every station it
+hasn't reached yet, so platforms are grouped by direction rather than counted one by one.
+    good     wait assessment >= 75% and no gap open
+    delays   wait assessment 60-75%, or a gap open in one direction
+    severe   wait assessment < 60%, gaps open in both directions, or a wait of 3x the scheduled interval
 """
 
 import argparse
@@ -32,12 +34,12 @@ def _read(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def status(wa: float | None, open_gaps: int) -> str:
-    if wa is None:
+def status(wa: float | None, gap_directions: int, worst_ratio: float = 0.0) -> str:
+    if wa is None and not gap_directions:
         return "no data"
-    if wa < 0.60 or open_gaps >= 3:
+    if (wa is not None and wa < 0.60) or gap_directions >= 2 or worst_ratio >= 3:
         return "severe"
-    if wa < 0.75 or open_gaps >= 2:
+    if (wa is not None and wa < 0.75) or gap_directions >= 1:
         return "delays"
     return "good"
 
@@ -64,9 +66,11 @@ def board(stream_dir: Path, static_dir: Path, now: int | None = None) -> dict:
         scored = r[r.status.isin(["ok", "late", "gap", "bunched"])]
         wa = float((scored.status == "ok").mean()) if len(scored) >= 5 else None
         og = open_gaps[open_gaps.route_id == route] if len(open_gaps) else open_gaps
-        lines.append({"route": route, "status": status(wa, len(og)), "wait_assessment": None if wa is None else round(wa, 3),
+        directions = og.stop_id.str[-1].nunique() if len(og) else 0
+        worst = float((og.headway_min / og.sched_min).max()) if len(og) and og.sched_min.notna().any() else 0.0
+        lines.append({"route": route, "status": status(wa, directions, worst), "wait_assessment": None if wa is None else round(wa, 3),
                       "headways": int(len(scored)), "gaps": int((scored.status == "gap").sum()),
-                      "bunched": int((scored.status == "bunched").sum()), "open_gaps": int(len(og)),
+                      "bunched": int((scored.status == "bunched").sum()), "open_gaps": int(len(og)), "gap_directions": int(directions),
                       "median_headway": None if r.empty else round(float(r.headway_min.median()), 1)})
     gaps = []
     for g in open_gaps.itertuples() if len(open_gaps) else []:

@@ -89,7 +89,7 @@ footer { padding: 26px 0 44px; border-top: 1px solid var(--rule); font-size: 13.
   <div class="board" id="board"><div class="notice">Loading the live board…</div></div>
 
   <section id="gaps-now">
-    <h2>Gaps open right now</h2>
+    <h2 id="gapsTitle">Gaps open right now</h2>
     <p>Platforms where the next train is overdue by twice the scheduled interval or more (and at least 8 minutes beyond it). An alert opens before the late train arrives, which is when a rider on the platform needs it.</p>
     <ul class="gaps" id="gaps"></ul>
   </section>
@@ -152,6 +152,7 @@ function ago(iso) { const m = Math.round((Date.now() - new Date(iso)) / 60000); 
 function drawLive(L) {
   const fresh = Date.now() - new Date(L.generated_at) < 12 * 60000;
   $("clock").innerHTML = `<span class="live-dot ${fresh ? "" : "stale"}"></span>${fresh ? "Live" : "Between sessions"} · updated <b>${ago(L.generated_at)}</b>`;
+  $("gapsTitle").textContent = fresh ? "Gaps open right now" : "Gaps open when the last session ended";
   const lines = L.lines.slice().sort((a, b) => rank(a.route) - rank(b.route));
   const counts = { good: 0, delays: 0, severe: 0 };
   lines.forEach((l) => { if (counts[l.status] != null) counts[l.status]++; });
@@ -168,7 +169,7 @@ function drawLive(L) {
     : `<div class="notice">No trains measured yet in this session. The first intervals appear a few minutes after a session starts.</div>`;
   $("gaps").innerHTML = L.open_gaps.length ? L.open_gaps.slice(0, 25).map((g) => `<li>${routeTag(g.route)}<span class="what"><b>${esc(g.station)}</b><div>${g.direction} · a train is due every ${g.scheduled_min ? Math.round(g.scheduled_min) : "?"} min</div></span>
       <span class="waited">${Math.round(g.waited_min)} min<small>since the last train</small></span></li>`).join("")
-    : `<li style="grid-template-columns:1fr;color:var(--muted)">No gaps open right now.</li>`;
+    : `<li style="grid-template-columns:1fr;color:var(--muted)">No gaps open${fresh ? " right now" : " at the end of the last session"}.</li>`;
   $("worst").innerHTML = `<thead><tr><th>Line</th><th>Platform</th><th class="n">Gaps</th></tr></thead><tbody>` +
     (L.worst_platforms.length ? L.worst_platforms.map((w) => `<tr><td>${esc(LABEL[w.route] || w.route)}</td><td>${esc(w.station)} <span style="color:var(--muted)">${w.direction}</span></td><td class="n">${w.gaps}</td></tr>`).join("")
       : `<tr><td colspan="3" style="color:var(--muted)">No gaps yet this session.</td></tr>`) + "</tbody>";

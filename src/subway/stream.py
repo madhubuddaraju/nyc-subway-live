@@ -166,7 +166,7 @@ def reliability_query(spark: SparkSession):
     schema = T.StructType(PLATFORM_OUT.fields + [T.StructField("arrival_time", T.TimestampType())])
     (OUT / "headways").mkdir(parents=True, exist_ok=True)
     hw = spark.readStream.schema(schema).parquet(str(OUT / "headways"))
-    agg = (hw.withWatermark("arrival_time", "10 minutes")
+    agg = (hw.withWatermark("arrival_time", "5 minutes")
            .groupBy(F.window("arrival_time", "15 minutes"), "route_id")
            .agg(F.count("*").alias("headways"),
                 F.avg((F.col("status") == "ok").cast("double")).alias("wait_assessment"),
