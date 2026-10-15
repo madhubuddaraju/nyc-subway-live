@@ -1,0 +1,70 @@
+name: Stream
+
+# Hourly streaming session: MTA feeds -> Kafka -> Spark Structured Streaming -> live board.
+# Each run streams for about 50 minutes and republishes the board every 4 minutes to the `live-data` branch,
+# which the dashboard reads. (A production deployment would run the same code continuously; see docker-compose.yml.)
+on:
+  schedule:
+    - cron: "2 * * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: Minutes to stream
+        default: "50"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stream
+  cancel-in-progress: false
+
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    services:
+      kafka:
+        image: apache/kafka:3.9.0
+        ports: ["9092:9092"]
+    env:
+      PYTHONPATH: src
+      MINUTES: ${{ inputs.minutes || '50' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Cache Spark's Kafka connector
+        uses: actions/cache@v4
+        with:
+          path: ~/.ivy2.5.2
+          key: ivy-spark-4.1.3-kafka
+      - name: Timetable baseline
+        run: python -m subway.schedule
+      - name: Kafka topics
+        run: python scripts/create_topics.py
+      - name: Previous history
+        run: |
+          mkdir -p previous
+          git fetch -q origin live-data && git show origin/live-data:history.json > previous/history.json || echo "no history yet"
+      - name: Stream
+        shell: bash
+        run: |
+          python -m subway.producer --minutes $((MINUTES + 2)) > producer.log 2>&1 &
+          ( sleep 300; while true; do python -m subway.live --out data/live > /dev/null 2>&1 \
+              && cp previous/history.json data/live/ 2>/dev/null; scripts/publish_live.sh data/live || true; sleep 240; done ) &
+          python -m subway.stream --source kafka --minutes "$MINUTES" 2>&1 | grep -v " WARN " | tail -n 200
+      - name: Final board and history
+        run: |
+          python -m subway.live --out data/live --history-in previous/history.json --session "${{ github.run_id }}"
+          scripts/publish_live.sh data/live
+      - name: Logs
+        if: always()
+        run: tail -n 40 producer.log || true

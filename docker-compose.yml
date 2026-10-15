@@ -1,0 +1,36 @@
+# Run the pipeline continuously on one machine:   docker compose up --build
+# The live board is written to ./data/live every 2 minutes; open docs/index.html against it or publish it anywhere.
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  setup:
+    build: .
+    command: sh -c "python -m subway.schedule && python scripts/create_topics.py"
+    volumes: ["./data:/app/data"]
+    depends_on: [kafka]
+  producer:
+    build: .
+    command: python -m subway.producer --minutes 1000000
+    depends_on:
+      setup: {condition: service_completed_successfully}
+    restart: unless-stopped
+  stream:
+    build: .
+    command: python -m subway.stream --source kafka --minutes 1000000
+    volumes: ["./data:/app/data"]
+    depends_on:
+      setup: {condition: service_completed_successfully}
+    restart: unless-stopped
+  board:
+    build: .
+    command: sh -c "while true; do python -m subway.live --out data/live; sleep 120; done"
+    volumes: ["./data:/app/data"]
+    depends_on: [stream]

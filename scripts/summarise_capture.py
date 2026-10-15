@@ -9,9 +9,11 @@ import pandas as pd
 
 cap, out = Path(sys.argv[1]), Path(sys.argv[2])
 events = [json.loads(line) for f in sorted(cap.glob("poll-*.json")) for line in f.read_text().splitlines() if line]
-last = max(e["feed_ts"] for e in events)
+last = {}                                            # each feed has its own timestamp: use its newest poll
+for e in events:
+    last[e["feed"]] = max(last.get(e["feed"], 0), e["feed_ts"])
 summary = {"polls": len(list(cap.glob("poll-*.json"))), "train_updates": len(events),
-           "trains_by_route": dict(Counter(e["route_id"] for e in events if e["feed_ts"] == last)),
+           "trains_by_route": dict(Counter(e["route_id"] for e in events if e["feed_ts"] == last[e["feed"]])),
            "stops_per_update": round(sum(len(e["stops"]) for e in events) / max(len(events), 1), 1)}
 hw_dir = out / "headways"
 if hw_dir.exists():

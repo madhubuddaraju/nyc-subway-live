@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Subway Line Watch</title>
+<meta name="description" content="Live NYC subway service gaps and bunching, detected from the trains themselves with Kafka and Spark Structured Streaming.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Live line board: status of every line first, then the gaps open right now, then reliability by hour from
+   accumulated history. Light theme, white page. Not affiliated with the MTA; route letters are plain text. */
+:root {
+  color-scheme: light;
+  --paper: #ffffff; --ink: #1f2328; --muted: #59636e; --faint: #8c959f; --rule: #e3e6ea; --wash: #f5f6f8;
+  --good: #2e7d32; --good-wash: #e8f3e9; --delay: #a35f00; --delay-wash: #fdf1df; --severe: #c62828; --severe-wash: #fbe9e9;
+  --none: #8c959f; --spark: #1f2328;
+  --font: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 16px/1.5 var(--font); font-variant-numeric: tabular-nums; }
+a { color: inherit; }
+a:focus-visible, button:focus-visible, select:focus-visible { outline: 3px solid #1f6feb; outline-offset: 2px; }
+.page { max-width: 1120px; margin: 0 auto; padding: 0 max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left)); }
+header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; padding: 22px 0 6px; }
+header h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
+.clock { font-size: 15px; color: var(--muted); }
+.clock b { color: var(--ink); }
+.live-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: 1px; }
+.live-dot.stale { background: var(--faint); }
+.lede { color: var(--muted); max-width: 74ch; margin: 6px 0 22px; }
+
+.board { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.line { border: 1px solid var(--rule); border-left-width: 6px; border-radius: 6px; padding: 12px 14px; display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 4px 12px; align-items: center; background: #fff; }
+.line.good { border-left-color: var(--good); } .line.delays { border-left-color: var(--delay); } .line.severe { border-left-color: var(--severe); } .line.none { border-left-color: var(--rule); }
+.route { grid-row: span 2; width: 46px; height: 46px; border-radius: 6px; background: var(--wash); display: grid; place-items: center; font-weight: 700; font-size: 22px; }
+.state { font-weight: 700; font-size: 17px; }
+.good .state { color: var(--good); } .delays .state { color: var(--delay); } .severe .state { color: var(--severe); } .none .state { color: var(--none); }
+.figs { font-size: 13.5px; color: var(--muted); }
+.line svg { grid-column: 1 / -1; width: 100%; height: 28px; display: block; margin-top: 4px; }
+.line .gapnote { grid-column: 1 / -1; font-size: 13.5px; color: var(--severe); }
+.summary { display: flex; gap: 22px; flex-wrap: wrap; margin: 0 0 14px; font-size: 15px; color: var(--muted); }
+.summary b { color: var(--ink); font-size: 20px; margin-right: 4px; }
+.notice { padding: 14px 16px; background: var(--wash); border-radius: 6px; color: var(--muted); }
+
+section { padding: 34px 0; border-top: 1px solid var(--rule); margin-top: 30px; }
+section h2 { font-size: 23px; margin: 0 0 6px; }
+section > p { color: var(--muted); margin: 0 0 16px; max-width: 74ch; }
+ul.gaps { list-style: none; margin: 0; padding: 0; }
+ul.gaps li { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+ul.gaps .route { grid-row: auto; width: 40px; height: 40px; font-size: 19px; }
+ul.gaps .what b { font-size: 17px; }
+ul.gaps .what div { font-size: 14px; color: var(--muted); }
+.waited { text-align: right; font-weight: 700; font-size: 20px; color: var(--severe); white-space: nowrap; }
+.waited small { display: block; font-size: 12.5px; font-weight: 400; color: var(--muted); }
+.controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; font-size: 14px; color: var(--muted); }
+.controls select { font: inherit; font-size: 15px; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 6px; background: #fff; color: var(--ink); }
+.heat { overflow-x: auto; }
+.heat table { border-collapse: separate; border-spacing: 2px; font-size: 12.5px; }
+.heat th { font-weight: 400; color: var(--muted); padding: 0 4px; text-align: center; }
+.heat th.r { text-align: right; font-weight: 700; color: var(--ink); font-size: 14px; padding-right: 8px; }
+.heat td { width: 30px; height: 26px; border-radius: 3px; text-align: center; color: #fff; font-size: 11px; }
+.heat td.empty { background: var(--wash); }
+.key { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.key i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+table.data { width: 100%; border-collapse: collapse; font-size: 15px; }
+table.data th { text-align: left; font-size: 13px; color: var(--muted); font-weight: 400; padding: 6px 8px; border-bottom: 2px solid var(--ink); }
+table.data td { padding: 8px; border-bottom: 1px solid var(--rule); }
+table.data td.n, table.data th.n { text-align: right; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
+.flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 6px 0 16px; }
+.flow div { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font-size: 14px; color: var(--muted); }
+.flow b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 2px; }
+footer { padding: 26px 0 44px; border-top: 1px solid var(--rule); font-size: 13.5px; color: var(--faint); display: grid; gap: 6px; }
+@media (max-width: 860px) { .two { grid-template-columns: minmax(0, 1fr); } .flow { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>Subway Line Watch</h1>
+    <span class="clock" id="clock"><span class="live-dot stale"></span>loading</span>
+  </header>
+  <p class="lede">Every NYC subway train reports its position about every 30 seconds. This board compares how often each line actually arrives at each platform with the timetable, and flags gaps (no train for far longer than scheduled) and bunching (trains arriving together) as they happen.</p>
+  <div class="summary" id="summary"></div>
+  <div class="board" id="board"><div class="notice">Loading the live board…</div></div>
+
+  <section id="gaps-now">
+    <h2>Gaps open right now</h2>
+    <p>Platforms where the next train is overdue by twice the scheduled interval or more (and at least 8 minutes beyond it). An alert opens before the late train arrives, which is when a rider on the platform needs it.</p>
+    <ul class="gaps" id="gaps"></ul>
+  </section>
+
+  <section id="by-hour">
+    <h2>When is my line reliable?</h2>
+    <p>Share of trains arriving within 25% of the scheduled interval (the MTA calls this wait assessment), by hour, from every streaming session so far. Pick a day type.</p>
+    <div class="controls"><label for="dt">Day</label><select id="dt"><option value="weekday">Weekdays</option><option value="saturday">Saturdays</option><option value="sunday">Sundays</option></select><span id="histNote"></span></div>
+    <div class="heat" id="heat"></div>
+    <div class="key"><span><i style="background:#c62828"></i>under 60%</span><span><i style="background:#d9822b"></i>60–75%</span><span><i style="background:#7cb342"></i>75–85%</span><span><i style="background:#2e7d32"></i>85% or more</span><span><i style="background:var(--wash)"></i>not enough data</span></div>
+  </section>
+
+  <section id="session">
+    <h2>This session</h2>
+    <div class="two">
+      <div><p>Platforms with the most service gaps since this streaming session started.</p><table class="data" id="worst"></table></div>
+      <div><p>Daily wait assessment by line, from all sessions so far.</p><table class="data" id="daily"></table></div>
+    </div>
+  </section>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <div class="flow">
+      <div><b>Poll</b>A producer reads the MTA's eight GTFS-realtime feeds every 30 s and publishes each train's update to Kafka.</div>
+      <div><b>Infer arrivals</b>Spark keeps every train's remaining stops in state; when a stop drops off its list, the train has arrived there.</div>
+      <div><b>Headways</b>A second stateful query keeps the last arrival per line and platform and compares each new interval with the timetable.</div>
+      <div><b>Alerts</b>State timeouts raise a gap alert when a platform stays quiet too long, before the next train shows up.</div>
+      <div><b>Publish</b>15-minute event-time windows give reliability per line; the board is republished every few minutes.</div>
+    </div>
+    <p>Duplicates are dropped within a watermark, every query checkpoints its state, and the stages are joined by Kafka topics so each can be replayed. Streaming runs as hourly sessions of about 50 minutes on GitHub Actions; the same code runs continuously with Docker Compose. <a href="https://github.com/madhubuddaraju/nyc-subway-live">Source code</a></p>
+  </section>
+
+  <footer>
+    <div>Data: MTA GTFS-realtime subway feeds and static timetable, used under the MTA's data feed terms. Not affiliated with or endorsed by the MTA. Check the MTA's own service alerts before you travel.</div>
+    <div>Arrival times are inferred from train predictions, so individual headways can be off by up to a minute.</div>
+  </footer>
+</div>
+<script>
+const RAW = "https://raw.githubusercontent.com/madhubuddaraju/nyc-subway-live/live-data/";
+const ORDER = ["1","2","3","4","5","6","6X","7","7X","A","C","E","B","D","F","FX","M","G","J","Z","L","N","Q","R","W","GS","FS","H","SIR"];
+const LABEL = { GS: "S", FS: "S", H: "S", SIR: "SIR", "6X": "6", "7X": "7", FX: "F" };
+const LONG = { GS: "42 St Shuttle", FS: "Franklin Av Shuttle", H: "Rockaway Park Shuttle", SIR: "Staten Island Railway", "6X": "6 express", "7X": "7 express", FX: "F express" };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const pct = (x) => x == null ? "–" : Math.round(x * 100) + "%";
+const routeTag = (r) => `<span class="route" title="${esc(LONG[r] || r + " train")}">${esc(LABEL[r] || r)}</span>`;
+const rank = (r) => { const i = ORDER.indexOf(r); return i < 0 ? 99 : i; };
+const STATE = { good: "Good service", delays: "Delays", severe: "Severe delays", "no data": "Not enough data" };
+
+function spark(points) {
+  if (points.length < 2) return "";
+  const w = 220, h = 28, xs = points.map((_, i) => 2 + i * (w - 4) / (points.length - 1));
+  const ys = points.map((p) => h - 3 - p * (h - 6));
+  const target = h - 3 - 0.75 * (h - 6);
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="${w}" y1="${target}" y2="${target}" stroke="#e3e6ea" stroke-dasharray="3 3"/>
+    <polyline fill="none" stroke="var(--spark)" stroke-width="1.6" points="${xs.map((x, i) => `${x.toFixed(1)},${ys[i].toFixed(1)}`).join(" ")}"/></svg>`;
+}
+function ago(iso) { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "just now" : m === 1 ? "1 minute ago" : m < 120 ? `${m} minutes ago` : `${Math.round(m / 60)} hours ago`; }
+
+function drawLive(L) {
+  const fresh = Date.now() - new Date(L.generated_at) < 12 * 60000;
+  $("clock").innerHTML = `<span class="live-dot ${fresh ? "" : "stale"}"></span>${fresh ? "Live" : "Between sessions"} · updated <b>${ago(L.generated_at)}</b>`;
+  const lines = L.lines.slice().sort((a, b) => rank(a.route) - rank(b.route));
+  const counts = { good: 0, delays: 0, severe: 0 };
+  lines.forEach((l) => { if (counts[l.status] != null) counts[l.status]++; });
+  $("summary").innerHTML = `<span><b>${counts.good}</b>lines with good service</span><span><b>${counts.delays}</b>with delays</span><span><b>${counts.severe}</b>with severe delays</span><span><b>${L.open_gaps.length}</b>gaps open now</span>`;
+  const byRoute = {};
+  for (const w of L.windows) (byRoute[w.route] ||= []).push(w.wa);
+  const gapsBy = {};
+  for (const g of L.open_gaps) (gapsBy[g.route] ||= []).push(g);
+  $("board").innerHTML = lines.length ? lines.map((l) => { const cls = l.status === "no data" ? "none" : l.status; const g = (gapsBy[l.route] || [])[0];
+    return `<div class="line ${cls}">${routeTag(l.route)}<span class="state">${STATE[l.status]}</span>
+      <span class="figs">${l.wait_assessment == null ? `${l.headways} intervals measured` : `${pct(l.wait_assessment)} on schedule`}${l.gaps ? ` · ${l.gaps} gap${l.gaps > 1 ? "s" : ""}` : ""}${l.bunched ? ` · ${l.bunched} bunched` : ""}</span>
+      ${spark(byRoute[l.route] || [])}
+      ${g ? `<span class="gapnote">No ${g.direction} train at ${esc(g.station)} for ${Math.round(g.waited_min)} min</span>` : ""}</div>`; }).join("")
+    : `<div class="notice">No trains measured yet in this session. The first intervals appear a few minutes after a session starts.</div>`;
+  $("gaps").innerHTML = L.open_gaps.length ? L.open_gaps.slice(0, 25).map((g) => `<li>${routeTag(g.route)}<span class="what"><b>${esc(g.station)}</b><div>${g.direction} · a train is due every ${g.scheduled_min ? Math.round(g.scheduled_min) : "?"} min</div></span>
+      <span class="waited">${Math.round(g.waited_min)} min<small>since the last train</small></span></li>`).join("")
+    : `<li style="grid-template-columns:1fr;color:var(--muted)">No gaps open right now.</li>`;
+  $("worst").innerHTML = `<thead><tr><th>Line</th><th>Platform</th><th class="n">Gaps</th></tr></thead><tbody>` +
+    (L.worst_platforms.length ? L.worst_platforms.map((w) => `<tr><td>${esc(LABEL[w.route] || w.route)}</td><td>${esc(w.station)} <span style="color:var(--muted)">${w.direction}</span></td><td class="n">${w.gaps}</td></tr>`).join("")
+      : `<tr><td colspan="3" style="color:var(--muted)">No gaps yet this session.</td></tr>`) + "</tbody>";
+}
+
+function color(v) { return v >= 0.85 ? "#2e7d32" : v >= 0.75 ? "#7cb342" : v >= 0.60 ? "#d9822b" : "#c62828"; }
+let HIST = null;
+function drawHistory() {
+  if (!HIST) return;
+  const dt = $("dt").value, cells = {}, routes = new Set();
+  for (const [k, v] of Object.entries(HIST.by_hour)) { const [r, d, h] = k.split("|"); if (d !== dt) continue; cells[r + "|" + h] = v; routes.add(r); }
+  const rs = [...routes].sort((a, b) => rank(a) - rank(b));
+  $("histNote").textContent = `${HIST.sessions.length} streaming session${HIST.sessions.length === 1 ? "" : "s"} so far`;
+  const hours = [...Array(24).keys()];
+  $("heat").innerHTML = rs.length ? `<table><thead><tr><th></th>${hours.map((h) => `<th>${h % 3 === 0 ? (h % 12 || 12) + (h < 12 ? "a" : "p") : ""}</th>`).join("")}</tr></thead><tbody>` +
+    rs.map((r) => `<tr><th class="r">${esc(LABEL[r] || r)}</th>${hours.map((h) => { const c = cells[r + "|" + h];
+      if (!c || c[0] < 8) return `<td class="empty"></td>`; const v = c[1] / c[0];
+      return `<td style="background:${color(v)}" title="${esc(LABEL[r] || r)} at ${h}:00 — ${pct(v)} on schedule, ${c[2]} gaps in ${c[0]} intervals">${Math.round(v * 100)}</td>`; }).join("")}</tr>`).join("") + "</tbody></table>"
+    : `<div class="notice">No ${dt} sessions recorded yet. This fills in as the hourly sessions run.</div>`;
+  const days = {};
+  for (const [k, v] of Object.entries(HIST.by_day)) { const [r, d] = k.split("|"); (days[d] ||= {})[r] = v; }
+  const recent = Object.keys(days).sort().slice(-7).reverse();
+  const tot = (d) => Object.values(days[d]).reduce((a, v) => [a[0] + v[0], a[1] + v[1], a[2] + v[2]], [0, 0, 0]);
+  $("daily").innerHTML = `<thead><tr><th>Day</th><th class="n">Intervals</th><th class="n">On schedule</th><th class="n">Gaps</th></tr></thead><tbody>` +
+    recent.map((d) => { const t = tot(d); return `<tr><td>${d}</td><td class="n">${t[0].toLocaleString()}</td><td class="n">${pct(t[1] / t[0])}</td><td class="n">${t[2]}</td></tr>`; }).join("") + "</tbody>";
+}
+$("dt").addEventListener("change", drawHistory);
+(function setDefaultDay() { const d = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" }); $("dt").value = d === "Sat" ? "saturday" : d === "Sun" ? "sunday" : "weekday"; })();
+
+async function load() {
+  const bust = "?t=" + Math.floor(Date.now() / 60000);
+  try {
+    const live = await fetch(RAW + "live.json" + bust).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    drawLive(live);
+  } catch (e) {
+    $("board").innerHTML = `<div class="notice">The live board isn't available yet. Streaming sessions start at two minutes past each hour.</div>`;
+    $("clock").innerHTML = `<span class="live-dot stale"></span>waiting for the first session`;
+  }
+  try { HIST = await fetch(RAW + "history.json" + bust).then((r) => r.ok ? r.json() : null); drawHistory(); } catch (e) { /* history appears after the first session */ }
+}
+load();
+setInterval(load, 120000);
+</script>
+</body>
+</html>
