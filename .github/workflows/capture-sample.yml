@@ -40,7 +40,8 @@ jobs:
         env:
           PYTHONPATH: src
       - name: Summarise
-        run: python scripts/summarise_capture.py data/capture data/stream
+        run: python scripts/summarise_capture.py data/capture data/stream 2>&1 | tee summary.log; test ${PIPESTATUS[0]} -eq 0
+        shell: bash
       - name: Commit
         run: |
           git config user.name "github-actions[bot]"
@@ -48,3 +49,10 @@ jobs:
           git add -f reports/capture_summary.json tests/fixtures/capture.jsonl.gz data/static/*.parquet
           git commit -m "Capture a live feed sample and timetable baseline" || exit 0
           for i in 1 2 3; do git pull --rebase && git push && break; sleep 5; done
+      - name: Keep the log on failure
+        if: failure()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git checkout -B capture-log
+          git add -f summary.log && git commit -qm log && git push -qf origin capture-log

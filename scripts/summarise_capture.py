@@ -9,8 +9,9 @@ import pandas as pd
 
 cap, out = Path(sys.argv[1]), Path(sys.argv[2])
 events = [json.loads(line) for f in sorted(cap.glob("poll-*.json")) for line in f.read_text().splitlines() if line]
+last = max(e["feed_ts"] for e in events)
 summary = {"polls": len(list(cap.glob("poll-*.json"))), "train_updates": len(events),
-           "trains_by_route": dict(Counter(e["route_id"] for e in events if e["feed_ts"] == max(x["feed_ts"] for x in events))),
+           "trains_by_route": dict(Counter(e["route_id"] for e in events if e["feed_ts"] == last)),
            "stops_per_update": round(sum(len(e["stops"]) for e in events) / max(len(events), 1), 1)}
 hw_dir = out / "headways"
 if hw_dir.exists():
@@ -21,6 +22,7 @@ if hw_dir.exists():
     summary["headway_examples"] = hw.sort_values("arrival_ts").head(15)[cols].to_dict("records")
 Path("reports").mkdir(exist_ok=True)
 Path("reports/capture_summary.json").write_text(json.dumps(summary, indent=1, default=str))
+Path("tests/fixtures").mkdir(parents=True, exist_ok=True)
 with gzip.open("tests/fixtures/capture.jsonl.gz", "wt") as f:
     for e in events:
         f.write(json.dumps(e) + "\n")
