@@ -1,0 +1,125 @@
+{
+ "polls": 16,
+ "train_updates": 11271,
+ "trains_by_route": {
+  "A": 38,
+  "C": 33,
+  "E": 31,
+  "H": 10
+ },
+ "stops_per_update": 22.2,
+ "headways": 229,
+ "status_counts": {
+  "ok": 194,
+  "bunched": 31,
+  "late": 3,
+  "unscheduled": 1
+ },
+ "headway_examples": [
+  {
+   "route_id": "1",
+   "stop_id": "131S",
+   "headway_min": 1.77,
+   "sched_min": 6.0,
+   "status": "bunched"
+  },
+  {
+   "route_id": "7",
+   "stop_id": "702N",
+   "headway_min": 5.67,
+   "sched_min": 5.0,
+   "status": "ok"
+  },
+  {
+   "route_id": "7",
+   "stop_id": "720S",
+   "headway_min": 1.65,
+   "sched_min": 5.0,
+   "status": "bunched"
+  },
+  {
+   "route_id": "2",
+   "stop_id": "127N",
+   "headway_min": 1.98,
+   "sched_min": 8.0,
+   "status": "bunched"
+  },
+  {
+   "route_id": "B",
+   "stop_id": "A18N",
+   "headway_min": 1.98,
+   "sched_min": 7.5,
+   "status": "bunched"
+  },
+  {
+   "route_id": "1",
+   "stop_id": "132S",
+   "headway_min": 1.98,
+   "sched_min": 6.0,
+   "status": "bunched"
+  },
+  {
+   "route_id": "1",
+   "stop_id": "137N",
+   "headway_min": 1.78,
+   "sched_min": 6.0,
+   "status": "bunched"
+  },
+  {
+   "route_id": "A",
+   "stop_id": "A42N",
+   "headway_min": 2.6,
+   "sched_min": 7.8,
+   "status": "ok"
+  },
+  {
+   "route_id": "6",
+   "stop_id": "609S",
+   "headway_min": 1.92,
+   "sched_min": 3.0,
+   "status": "ok"
+  },
+  {
+   "route_id": "6",
+   "stop_id": "630S",
+   "headway_min": 1.85,
+   "sched_min": 4.0,
+   "status": "bunched"
+  },
+  {
+   "route_id": "R",
+   "stop_id": "R18S",
+   "headway_min": 2.0,
+   "sched_min": 8.5,
+   "status": "bunched"
+  },
+  {
+   "route_id": "L",
+   "stop_id": "L26S",
+   "headway_min": 2.57,
+   "sched_min": 5.0,
+   "status": "ok"
+  },
+  {
+   "route_id": "4",
+   "stop_id": "423S",
+   "headway_min": 2.22,
+   "sched_min": 7.8,
+   "status": "ok"
+  },
+  {
+   "route_id": "E",
+   "stop_id": "A25N",
+   "headway_min": 2.08,
+   "sched_min": 7.0,
+   "status": "ok"
+  },
+  {
+   "route_id": "F",
+   "stop_id": "G14N",
+   "headway_min": 1.17,
+   "sched_min": 5.5,
+   "status": "bunched"
+  }
+ ]
+}
