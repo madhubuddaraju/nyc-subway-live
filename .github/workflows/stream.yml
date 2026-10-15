@@ -58,13 +58,24 @@ jobs:
         shell: bash
         run: |
           python -m subway.producer --minutes $((MINUTES + 2)) > producer.log 2>&1 &
-          ( sleep 300; while true; do python -m subway.live --out data/live > /dev/null 2>&1 \
-              && cp previous/history.json data/live/ 2>/dev/null; scripts/publish_live.sh data/live || true; sleep 240; done ) &
-          python -m subway.stream --source kafka --minutes "$MINUTES" 2>&1 | grep -v " WARN " | tail -n 200
+          ( sleep 240; while true; do
+              python -m subway.live --out data/live >> board.log 2>&1
+              cp previous/history.json data/live/ 2>/dev/null || true
+              scripts/publish_live.sh data/live >> board.log 2>&1 || echo "publish failed" >> board.log
+              sleep 240; done ) &
+          python -m subway.stream --source kafka --minutes "$MINUTES" > stream.log 2>&1
       - name: Final board and history
         run: |
           python -m subway.live --out data/live --history-in previous/history.json --session "${{ github.run_id }}"
           scripts/publish_live.sh data/live
-      - name: Logs
+      - name: Keep the logs
         if: always()
-        run: tail -n 40 producer.log || true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          mkdir -p logs
+          tail -n 60 producer.log > logs/producer.log 2>/dev/null || true
+          grep -v " WARN " stream.log | tail -n 150 > logs/stream.log 2>/dev/null || true
+          tail -n 80 board.log > logs/board.log 2>/dev/null || true
+          git checkout -B stream-log
+          git add -f logs && git commit -qm "stream logs" && git push -qf origin stream-log
