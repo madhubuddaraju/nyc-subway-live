@@ -33,7 +33,7 @@ Thursday 15 October 2026, 1:18 to 1:38 pm, all lines, from the real feeds:
 
 | | |
 |---|---|
-| Train updates processed | about 22,000 a minute (each carries ~22 predicted stops) |
+| Train updates processed | about 1,400 a minute (each carries ~22 predicted stops, so ~31,000 stop predictions a minute) |
 | Intervals measured | **2,152** across 25 lines and shuttles |
 | Within 25% of schedule (wait assessment) | **81%** overall; weakest: 7 (66%), 6 (68%), 4 (69%); strongest: Q (97%), W (94%), J (92%) |
 | Bunched trains | **74** intervals of two minutes or less on lines scheduled every 4+ minutes |
