@@ -5,7 +5,7 @@ python -m subway.stream --source files --input tests/fixtures/capture --minutes 
 
 Three queries, joined by topics (or folders in file mode) so each stage can be replayed and scaled on its own:
   Q1  trip_updates  --dedupe, stateful per trip-->            arrivals
-  Q2  arrivals      --stateful per line+platform, timeouts--> headways (parquet) + alerts (parquet, Kafka)
+  Q2  arrivals      --stateful per line+platform, event-time timeouts--> headways (parquet) + alerts (parquet, Kafka)
   Q3  headways      --15-minute event-time windows-->         reliability (parquet)
 """
 
@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(os.environ.get("SUBWAY_OUT", ROOT / "data" / "stream"))
 STATIC = Path(os.environ.get("SUBWAY_STATIC", ROOT / "data" / "static"))
 log = logging.getLogger("stream")
+TRIGGER = os.environ.get("SUBWAY_TRIGGER", "15 seconds")                 # micro-batch interval
+MAX_FILES = int(os.environ.get("SUBWAY_MAX_FILES", "20"))               # file mode: polls per micro-batch
 
 EVENT = T.StructType([
     T.StructField("feed", T.StringType()), T.StructField("feed_ts", T.LongType()),
@@ -90,20 +92,33 @@ def trip_state_fn(key, pdfs, state):
     yield _frame(arrivals, ARRIVAL)
 
 
+# how late an arrival may reach the platform query; gap alerts trail real time by about this much
+ARRIVAL_WATERMARK = os.environ.get("SUBWAY_ARRIVAL_WATERMARK", "2 minutes")
+
+
 def platform_state_fn(key, pdfs, state):
+    """Event-time state per line and platform. "Now" is Spark's watermark (the newest arrival time processed, minus
+    the allowed lateness), not the wall clock, so a backlog upstream delays gap alerts instead of inventing them."""
     route_id, stop_id = key
     k = {"route_id": route_id, "stop_id": stop_id}
-    now = int(time.time())
+    wm = state.getCurrentWatermarkMs()
     st = json.loads(state.get[0]) if state.exists else None
     if state.hasTimedOut:
+        now = wm // 1000
         st, rows = logic.check_open_gap(st, k, now, sched_lookup)
     else:
-        arrivals = [r._asdict() for pdf in pdfs for r in pdf.itertuples(index=False)]
-        for a in arrivals:
-            a["arrival_ts"] = int(a["arrival_ts"])
+        arrivals = []
+        for pdf in pdfs:
+            for r in pdf.itertuples(index=False):
+                a = {f: getattr(r, f) for f in ("trip_uid", "route_id", "direction", "stop_id")}
+                a["arrival_ts"] = int(r.arrival_ts)
+                arrivals.append(a)
         st, rows = logic.track_platform(st, arrivals, sched_lookup)
+        now = max(wm // 1000, st["last_ts"])
     state.update((json.dumps(st),))
-    state.setTimeoutDuration(int(logic.next_check_minutes(st, k, now, sched_lookup) * 60 * 1000))
+    if st.get("last_ts"):
+        due_ms = int((now + logic.next_check_minutes(st, k, now, sched_lookup) * 60) * 1000)
+        state.setTimeoutTimestamp(max(due_ms, wm + 1000))
     yield _frame(rows, PLATFORM_OUT)
 
 
@@ -120,16 +135,16 @@ class Bus:
             return raw.select(F.from_json(F.col("value").cast("string"), schema).alias("v")).select("v.*")
         path = self.input_dir if topic == "trip_updates" and self.input_dir else str(OUT / "topics" / topic)
         Path(path).mkdir(parents=True, exist_ok=True)
-        return self.spark.readStream.schema(schema).option("maxFilesPerTrigger", 20).json(path)
+        return self.spark.readStream.schema(schema).option("maxFilesPerTrigger", MAX_FILES).json(path)
 
     def write(self, df: DataFrame, topic: str, key: str, name: str):
         ck = str(OUT / "checkpoints" / name)
         if self.source == "kafka":
             out = df.select(F.col(key).alias("key"), F.to_json(F.struct(*df.columns)).alias("value"))
             return (out.writeStream.format("kafka").option("kafka.bootstrap.servers", self.servers).option("topic", topic)
-                    .option("checkpointLocation", ck).queryName(name).trigger(processingTime="15 seconds").start())
+                    .option("checkpointLocation", ck).queryName(name).trigger(processingTime=TRIGGER).start())
         return (df.writeStream.format("json").option("path", str(OUT / "topics" / topic)).option("checkpointLocation", ck)
-                .queryName(name).trigger(processingTime="15 seconds").start())
+                .queryName(name).trigger(processingTime=TRIGGER).start())
 
 
 # ----------------------------------------------------------------------------- queries
@@ -144,9 +159,10 @@ def arrivals_query(bus: Bus):
 
 
 def platform_query(bus: Bus):
-    arrivals = bus.read("arrivals", ARRIVAL)
+    arrivals = (bus.read("arrivals", ARRIVAL).withColumn("arrival_time", F.timestamp_seconds("arrival_ts"))
+                .withWatermark("arrival_time", ARRIVAL_WATERMARK))
     out = (arrivals.groupBy("route_id", "stop_id")
-           .applyInPandasWithState(platform_state_fn, PLATFORM_OUT, STATE, "append", GroupStateTimeout.ProcessingTimeTimeout))
+           .applyInPandasWithState(platform_state_fn, PLATFORM_OUT, STATE, "append", GroupStateTimeout.EventTimeTimeout))
 
     def sink(batch: DataFrame, batch_id: int) -> None:
         batch = batch.withColumn("arrival_time", F.timestamp_seconds("arrival_ts")).cache()
@@ -159,7 +175,7 @@ def platform_query(bus: Bus):
         batch.unpersist()
 
     return (out.writeStream.foreachBatch(sink).option("checkpointLocation", str(OUT / "checkpoints" / "q2_platforms"))
-            .queryName("q2_platforms").trigger(processingTime="15 seconds").start())
+            .queryName("q2_platforms").trigger(processingTime=TRIGGER).start())
 
 
 def reliability_query(spark: SparkSession):

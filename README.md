@@ -71,9 +71,13 @@ so it only counts if the train was due within 90 seconds.
 than chain two stateful operators in one query, Q1 writes `arrivals` to Kafka and Q2 reads it. Each stage
 checkpoints separately and can be replayed or scaled on its own, and other consumers can read arrivals too.
 
-**Alerts from state timeouts.** A gap is most useful before the next train arrives. Q2 sets a processing-time
-timeout on each platform's state for the moment the wait becomes a gap; if no train has come, the timeout fires and
-raises an open-gap alert, refreshed every 2 minutes until a train closes it.
+**Alerts from event-time timeouts.** A gap is most useful before the next train arrives. Q2 sets a timeout on each
+platform's state for the moment the wait becomes a gap; if no train has come by then, the timeout fires and raises an
+open-gap alert, refreshed every 2 minutes until a train closes it. The first version used processing-time
+(wall-clock) timeouts, and the first live session showed why that is wrong: when the arrival stage fell a few minutes
+behind the feed, every platform looked quiet and 48 gaps opened at once. Timeouts now run on event time: "now" is
+Spark's watermark, the newest arrival actually processed minus a two-minute allowance, so a backlog delays alerts
+instead of inventing them. The end-to-end test checks that an alert opens before the late train and closes after it.
 
 **Duplicates, order and late data.** The producer keys messages by trip so each train's updates stay in order within a
 partition. Q1 drops duplicate polls with `dropDuplicatesWithinWatermark`, ignores polls older than the state it holds,
