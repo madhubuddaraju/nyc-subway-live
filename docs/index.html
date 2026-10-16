@@ -119,7 +119,7 @@ footer { padding: 26px 0 44px; border-top: 1px solid var(--rule); font-size: 13.
       <div><b>Alerts</b>State timeouts raise a gap alert when a platform stays quiet too long, before the next train shows up.</div>
       <div><b>Publish</b>15-minute event-time windows give reliability per line; the board is republished every few minutes.</div>
     </div>
-    <p>Duplicates are dropped within a watermark, every query checkpoints its state, and the stages are joined by Kafka topics so each can be replayed. Streaming runs as hourly sessions of about 50 minutes on GitHub Actions; the same code runs continuously with Docker Compose. <a href="https://github.com/madhubuddaraju/nyc-subway-live">Source code</a></p>
+    <p>Duplicates are dropped within a watermark, every query checkpoints its state, and the stages are joined by Kafka topics so each can be replayed. Streaming runs as hourly sessions of about 50 minutes on GitHub Actions; the same code runs continuously with Docker Compose. <a href="https://github.com/subbarajubuddaraju/nyc-subway-live">Source code</a></p>
   </section>
 
   <footer>
@@ -128,7 +128,7 @@ footer { padding: 26px 0 44px; border-top: 1px solid var(--rule); font-size: 13.
   </footer>
 </div>
 <script>
-const RAW = "https://raw.githubusercontent.com/madhubuddaraju/nyc-subway-live/live-data/";
+const RAW = "https://raw.githubusercontent.com/subbarajubuddaraju/nyc-subway-live/live-data/";
 const ORDER = ["1","2","3","4","5","6","6X","7","7X","A","C","E","B","D","F","FX","M","G","J","Z","L","N","Q","R","W","GS","FS","H","SIR"];
 const LABEL = { GS: "S", FS: "S", H: "S", SIR: "SIR", "6X": "6", "7X": "7", FX: "F" };
 const LONG = { GS: "42 St Shuttle", FS: "Franklin Av Shuttle", H: "Rockaway Park Shuttle", SIR: "Staten Island Railway", "6X": "6 express", "7X": "7 express", FX: "F express" };

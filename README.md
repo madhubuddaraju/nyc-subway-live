@@ -1,11 +1,11 @@
 # Subway Line Watch: real-time NYC subway gaps and bunching
 
-![CI](https://github.com/madhubuddaraju/nyc-subway-live/actions/workflows/ci.yml/badge.svg)
-![Stream](https://github.com/madhubuddaraju/nyc-subway-live/actions/workflows/stream.yml/badge.svg)
+![CI](https://github.com/subbarajubuddaraju/nyc-subway-live/actions/workflows/ci.yml/badge.svg)
+![Stream](https://github.com/subbarajubuddaraju/nyc-subway-live/actions/workflows/stream.yml/badge.svg)
 ![Kafka](https://img.shields.io/badge/Apache%20Kafka-3.9-231F20)
 ![Spark](https://img.shields.io/badge/Spark%20Structured%20Streaming-4.1-E25A1C)
 
-**Live board: [madhubuddaraju.github.io/nyc-subway-live](https://madhubuddaraju.github.io/nyc-subway-live/)**
+**Live board: [subbarajubuddaraju.github.io/nyc-subway-live](https://subbarajubuddaraju.github.io/nyc-subway-live/)**
 
 ## The problem
 

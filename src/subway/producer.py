@@ -75,7 +75,7 @@ def main() -> None:
     a = ap.parse_args()
     sink = FileSink(a.out) if a.out else KafkaSink(a.servers, a.topic)
     session = requests.Session()
-    session.headers["User-Agent"] = "nyc-subway-live (github.com/madhubuddaraju/nyc-subway-live)"
+    session.headers["User-Agent"] = "nyc-subway-live (github.com/subbarajubuddaraju/nyc-subway-live)"
     end = time.time() + a.minutes * 60
     while time.time() < end:
         t0 = time.time()
